@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: adsynth-engine
+    env: docker
+    region: ohio
+    plan: free
+    branch: main
