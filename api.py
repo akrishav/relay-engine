@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Security
+from fastapi import FastAPI, UploadFile, File, Depends, Form, HTTPException, Security
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader
@@ -7,7 +7,7 @@ import pandas as pd
 import io
 import time
 from pydantic import BaseModel
-from sdv.single_table import GaussianCopulaSynthesizer
+from sdv.single_table import GaussianCopulaSynthesizer, CTGANSynthesizer
 from sdv.metadata import SingleTableMetadata
 
 app = FastAPI()
@@ -37,7 +37,11 @@ import asyncio
 from fastapi.responses import StreamingResponse
 
 @app.post("/api/synthesize", dependencies=[Depends(get_api_key)])
-async def synthesize_data(file: UploadFile = File(...)):
+async def synthesize_data(
+    file: UploadFile = File(...), 
+    model_type: str = Form("gaussian"),
+    epochs: int = Form(10)
+):
     contents = await file.read()
     
     async def generate_response():
@@ -53,8 +57,13 @@ async def synthesize_data(file: UploadFile = File(...)):
             metadata = SingleTableMetadata()
             await asyncio.to_thread(metadata.detect_from_dataframe, real_data)
             
-            yield emit({"status": "Training Gaussian Copula Model (SDV)...", "progress": 55})
-            synthesizer = GaussianCopulaSynthesizer(metadata)
+            if model_type == "ctgan":
+                yield emit({"status": f"Training CTGAN Deep Learning Model ({epochs} epochs)...", "progress": 55})
+                synthesizer = CTGANSynthesizer(metadata, epochs=epochs)
+            else:
+                yield emit({"status": "Training Gaussian Copula Model (SDV)...", "progress": 55})
+                synthesizer = GaussianCopulaSynthesizer(metadata)
+                
             await asyncio.to_thread(synthesizer.fit, real_data)
             
             yield emit({"status": "Generating private mathematical twin...", "progress": 85})
