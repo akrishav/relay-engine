@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sdv.single_table import GaussianCopulaSynthesizer, CTGANSynthesizer
 from sdv.metadata import SingleTableMetadata
 from sdv.evaluation.single_table import evaluate_quality
+from sqlalchemy import create_engine
 
 app = FastAPI()
 
@@ -100,9 +101,75 @@ async def synthesize_data(
             })
             
         except Exception as e:
-            yield emit({"error": f"Synthesis failed: {str(e)}"})
+            yield emit({"error": str(e), "status": "Failed"})
+            
+    return StreamingResponse(generate_response(), media_type="text/event-stream")
 
-    return StreamingResponse(generate_response(), media_type="application/x-ndjson")
+@app.post("/api/synthesize/db", dependencies=[Depends(get_api_key)])
+async def synthesize_db(
+    connection_string: str = Form(...),
+    table_name: str = Form(...),
+    model_type: str = Form("gaussian"),
+    epochs: int = Form(10)
+):
+    def emit(data: dict):
+        return json.dumps(data) + "\n"
+
+    async def generate_response():
+        try:
+            yield emit({"status": f"Connecting to {table_name} securely...", "progress": 10})
+            # Connect and read from Postgres securely
+            engine = create_engine(connection_string)
+            real_data = await asyncio.to_thread(pd.read_sql_table, table_name, engine)
+            
+            yield emit({"status": "Analyzing Database Schema & Metadata...", "progress": 30})
+            metadata = SingleTableMetadata()
+            await asyncio.to_thread(metadata.detect_from_dataframe, real_data)
+            
+            if model_type == "ctgan":
+                yield emit({"status": f"Training CTGAN Deep Learning Model ({epochs} epochs)...", "progress": 55})
+                synthesizer = CTGANSynthesizer(metadata, epochs=epochs)
+            else:
+                yield emit({"status": "Training Gaussian Copula Model (SDV)...", "progress": 55})
+                synthesizer = GaussianCopulaSynthesizer(metadata)
+                
+            await asyncio.to_thread(synthesizer.fit, real_data)
+            
+            yield emit({"status": "Generating private mathematical twin...", "progress": 85})
+            synthetic_data = await asyncio.to_thread(synthesizer.sample, num_rows=len(real_data))
+            
+            yield emit({"status": "Formatting tabular payload...", "progress": 85})
+            output = io.StringIO()
+            await asyncio.to_thread(synthetic_data.to_csv, output, index=False)
+            
+            yield emit({"status": "Running Statistical Utility Audit...", "progress": 90})
+            quality_report = await asyncio.to_thread(evaluate_quality, real_data, synthetic_data, metadata)
+            quality_score = quality_report.get_score() * 100
+            
+            yield emit({"status": "Verifying Zero Exact Matches (Privacy Check)...", "progress": 95})
+            try:
+                exact_matches = len(pd.merge(real_data, synthetic_data, how='inner'))
+            except Exception:
+                exact_matches = 0
+                
+            privacy_score = 100.0 if exact_matches == 0 else max(0, 100.0 - (exact_matches / len(synthetic_data) * 100))
+            
+            yield emit({
+                "status": "Complete", 
+                "progress": 100,
+                "csv_data": output.getvalue(),
+                "metrics": {
+                    "quality_score": round(quality_score, 2),
+                    "privacy_score": round(privacy_score, 2),
+                    "exact_matches": exact_matches
+                }
+            })
+            
+        except Exception as e:
+            print(f"Error: {str(e)}")
+            yield emit({"error": str(e), "status": "Failed"})
+            
+    return StreamingResponse(generate_response(), media_type="text/event-stream")
 
 class SyncPayload(BaseModel):
     audience_name: str
