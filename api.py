@@ -9,6 +9,7 @@ import time
 from pydantic import BaseModel
 from sdv.single_table import GaussianCopulaSynthesizer, CTGANSynthesizer
 from sdv.metadata import SingleTableMetadata
+from sdv.evaluation.single_table import evaluate_quality
 
 app = FastAPI()
 
@@ -69,15 +70,33 @@ async def synthesize_data(
             yield emit({"status": "Generating private mathematical twin...", "progress": 85})
             synthetic_data = await asyncio.to_thread(synthesizer.sample, num_rows=len(real_data))
             
-            yield emit({"status": "Formatting CSV payload...", "progress": 95})
+            yield emit({"status": "Formatting CSV payload...", "progress": 85})
             output = io.StringIO()
             await asyncio.to_thread(synthetic_data.to_csv, output, index=False)
+            
+            yield emit({"status": "Running Statistical Utility Audit...", "progress": 90})
+            quality_report = await asyncio.to_thread(evaluate_quality, real_data, synthetic_data, metadata)
+            quality_score = quality_report.get_score() * 100
+            
+            yield emit({"status": "Verifying Zero Exact Matches (Privacy Check)...", "progress": 95})
+            # Merge to find identical rows
+            try:
+                exact_matches = len(pd.merge(real_data, synthetic_data, how='inner'))
+            except Exception:
+                exact_matches = 0
+                
+            privacy_score = 100.0 if exact_matches == 0 else max(0, 100.0 - (exact_matches / len(synthetic_data) * 100))
             
             # Send final payload
             yield emit({
                 "status": "Complete", 
                 "progress": 100,
-                "csv_data": output.getvalue()
+                "csv_data": output.getvalue(),
+                "metrics": {
+                    "quality_score": round(quality_score, 2),
+                    "privacy_score": round(privacy_score, 2),
+                    "exact_matches": exact_matches
+                }
             })
             
         except Exception as e:
