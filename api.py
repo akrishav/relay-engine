@@ -1,6 +1,8 @@
-from fastapi import FastAPI, UploadFile, File
+import os
+from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Security
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security.api_key import APIKeyHeader
 import pandas as pd
 import io
 import time
@@ -10,19 +12,31 @@ from sdv.metadata import SingleTableMetadata
 
 app = FastAPI()
 
+frontend_url = os.getenv("FRONTEND_URL", "*")
+allowed_origins = frontend_url.split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+api_key_header = APIKeyHeader(name="X-API-KEY", auto_error=False)
+
+async def get_api_key(api_key: str = Security(api_key_header)):
+    expected_api_key = os.getenv("API_SECRET_KEY")
+    if expected_api_key:
+        if api_key != expected_api_key:
+            raise HTTPException(status_code=403, detail="Invalid API Key")
+    return api_key
+
 import json
 import asyncio
 from fastapi.responses import StreamingResponse
 
-@app.post("/api/synthesize")
+@app.post("/api/synthesize", dependencies=[Depends(get_api_key)])
 async def synthesize_data(file: UploadFile = File(...)):
     contents = await file.read()
     
@@ -66,7 +80,7 @@ class SyncPayload(BaseModel):
     audience_name: str
     destination: str
 
-@app.post("/api/activations/sync")
+@app.post("/api/activations/sync", dependencies=[Depends(get_api_key)])
 async def sync_audience(payload: SyncPayload):
     async def generate_sync_response():
         def emit(data: dict):
