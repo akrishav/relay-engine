@@ -42,7 +42,8 @@ from fastapi.responses import StreamingResponse
 async def synthesize_data(
     file: UploadFile = File(...), 
     model_type: str = Form("gaussian"),
-    epochs: int = Form(10)
+    epochs: int = Form(10),
+    pii_columns: str = Form("[]")
 ):
     contents = await file.read()
     
@@ -58,6 +59,20 @@ async def synthesize_data(
             yield emit({"status": "Detecting schema and distributions...", "progress": 30})
             metadata = SingleTableMetadata()
             await asyncio.to_thread(metadata.detect_from_dataframe, real_data)
+            
+            # Formally scrub user-selected PII columns by marking them in metadata
+            pii_list = []
+            try:
+                pii_list = json.loads(pii_columns)
+            except: pass
+            
+            if pii_list:
+                for col in pii_list:
+                    if col in metadata.columns:
+                        try:
+                            # SDV will generate fake names/emails using fakers for these columns inherently
+                            metadata.update_column(column_name=col, sdtype='pii')
+                        except: pass
             
             if model_type == "ctgan":
                 yield emit({"status": f"Training CTGAN Deep Learning Model ({epochs} epochs)...", "progress": 55})
