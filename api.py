@@ -14,6 +14,10 @@ from sqlalchemy import create_engine
 
 app = FastAPI()
 
+@app.get("/api/health")
+def health_check():
+    return {"status": "AdSynth Engine is online"}
+
 frontend_url = os.getenv("FRONTEND_URL", "*")
 allowed_origins = frontend_url.split(",")
 
