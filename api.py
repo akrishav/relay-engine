@@ -118,7 +118,15 @@ async def synthesize_data(
         except Exception as e:
             yield emit({"error": str(e), "status": "Failed"})
             
-    return StreamingResponse(generate_response(), media_type="text/event-stream")
+    return StreamingResponse(
+        generate_response(), 
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 @app.post("/api/synthesize/db", dependencies=[Depends(get_api_key)])
 async def synthesize_db(
@@ -184,7 +192,15 @@ async def synthesize_db(
             print(f"Error: {str(e)}")
             yield emit({"error": str(e), "status": "Failed"})
             
-    return StreamingResponse(generate_response(), media_type="text/event-stream")
+    return StreamingResponse(
+        generate_response(), 
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 class SyncPayload(BaseModel):
     audience_name: str
